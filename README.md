@@ -7,7 +7,8 @@
 需要 macOS 13+、Go 1.27.3，以及已有的 frps 地址和凭证。
 
 ```sh
-go tool mygo dev
+make dev      # 等价于 go tool mygo dev
+make build    # 构建 darwin/arm64 与 darwin/amd64 到 build/
 ```
 
 新建连接时选择保底内核，填写 frps 地址、端口和 token，再添加隧道。新连接默认启用 TLS 和系统 CA 校验；自签名环境可以导入 PEM CA。已有 frps 的配置需与客户端设置匹配。
@@ -19,6 +20,12 @@ go tool mygo dev
 “视图”菜单可切换侧栏、检查器和日志；侧栏快捷键为 `⌃⌘S`。日志可组合等级、文本、本地时间范围和隧道/访问者标签筛选，复制与导出使用同一份筛选结果。对象关联仅匹配日志中的完整名称标签，连接级日志在“全部日志”中查看。
 
 ## CLI 检查
+
+```sh
+make check    # gofmt、go vet、mygo vet、测试与 race
+```
+
+也可以分开运行：
 
 ```sh
 gofmt -l main.go internal
