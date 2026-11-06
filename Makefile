@@ -3,7 +3,7 @@ PLATFORMS ?= darwin/arm64,darwin/amd64
 
 .DEFAULT_GOAL := build
 
-.PHONY: dev build fmt vet test race check clean
+.PHONY: dev build fmt vet test race check clean release
 
 dev: ## Run the app.
 	$(GO) tool mygo dev
@@ -31,6 +31,9 @@ check: ## Fail on unformatted code, then vet, test and race.
 	$(GO) tool mygo vet .
 	CGO_ENABLED=0 $(GO) test ./... -count=1
 	$(GO) test -race ./internal/app/... ./internal/runtime/... ./internal/storage/... ./internal/logging/... ./internal/ui/...
+
+release: ## Bump the version, commit, tag v<version> and push.
+	bunx bumpp@12.3.0
 
 clean: ## Remove build output.
 	rm -rf build
