@@ -1,0 +1,10 @@
+{
+  "name": "frp-desktop",
+  "slug": "frp-desktop",
+  "identifier": "top.wankong.frp",
+  "version": "0.1.0",
+  "out": "build",
+  "macos": {
+    "minimumSystemVersion": "13.0"
+  }
+}

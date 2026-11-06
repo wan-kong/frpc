@@ -1,0 +1,8 @@
+node_modules/
+/dist/
+/build/
+/.mygo/
+mygo_windows_*.syso
+/.test-tools/
+mygo-update.key
+mygo.release.json
