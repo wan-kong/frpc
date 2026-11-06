@@ -61,6 +61,6 @@ FRP_SOAK_DURATION=30m CGO_ENABLED=0 go test ./internal/acceptance -run '^TestPer
 
 已确定仓库 `wan-kong/frpc` 和 Bundle ID `top.wankong.frpc`。`mygo.json` 已填写 `updates.github` 与 `mygo-update.pub` 的公钥（两者都是公开信息）；更新签名私钥只通过 `MYGO_UPDATER_PRIVATE_KEY` Secret 提供。发行构建不做 Apple 签名与公证，应用只有 ad-hoc 签名，因此从 GitHub 下载后首次打开会被 Gatekeeper 拦截，需由用户在 Finder 中右键打开；更新包签名保证更新来源，与 Apple 代码签名是两套机制。
 
-`make release` 用 bumpp（配置见 `bump.config.ts`）递增 `mygo.json` 的版本，提交并推送 `v<version>` 标签；工作区不干净时会拒绝。推送 `v*` 标签会触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)：校验标签与 `mygo.json.version`，构建 `darwin/arm64` 与 `darwin/amd64`，把应用包与更新资产上传到草稿 Release。草稿需人工检查后再发布。
+`make release` 用 bumpp（配置见 `bump.config.ts`）递增 `mygo.json` 的版本，同时用 changelogen 写入 `CHANGELOG.md` 的该版本小节，提交并推送 `v<version>` 标签；工作区不干净时会拒绝。推送 `v*` 标签会触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)：校验标签与 `mygo.json.version`，构建 `darwin/arm64`，把应用包与更新资产上传到草稿 Release，以 CHANGELOG 小节作为 Release 说明和应用内更新说明，上传完成后自动发布并标记为 Latest。若构建或上传失败，Release 保持草稿。
 
 完整产品与架构要求见 [技术与设计方案](docs/技术与设计方案.md)。实施状态及未完成项见 [实施进度](docs/实施进度.md)。CLI 检查不能替代真实 macOS 呈现、VoiceOver 及发行更新闭环验证，未执行的验收不会标为通过。

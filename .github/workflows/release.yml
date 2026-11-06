@@ -5,26 +5,51 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write # the draft release, and the uploads to it
+  contents: write
 
 jobs:
-  draft-release:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Require the tag to match mygo.json
         run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
-      - name: Create the draft release
+      - name: Create or update the draft release from CHANGELOG.md
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+          version="$(jq -r .version mygo.json)"
+          notes="$(mktemp)"
+          awk -v v="$version" '
+            /^## / {
+              h = $0
+              sub(/^##[[:space:]]+/, "", h)
+              sub(/^\[/, "", h)
+              sub(/^v/, "", h)
+              sub(/\].*/, "", h)
+              split(h, f, /[[:space:]]+/)
+              inside = (f[1] == v)
+              next
+            }
+            inside { print }
+          ' CHANGELOG.md > "$notes"
+          if [ ! -s "$notes" ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+          if draft="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"; then
+            if [ "$draft" != "true" ]; then
+              echo "Refusing to overwrite an already published release" >&2
+              exit 1
+            fi
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
+          else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --draft --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+              --draft --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$notes"
           fi
 
   build:
-    needs: draft-release
+    needs: release
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,4 +61,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-        run: go tool mygo build -platform "darwin/arm64,darwin/amd64" -upload
+        run: go tool mygo build -platform "darwin/arm64" -upload
+      - name: Publish the completed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

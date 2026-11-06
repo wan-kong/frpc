@@ -33,6 +33,8 @@ check: ## Fail on unformatted code, then vet, test and race.
 	$(GO) test -race ./internal/app/... ./internal/runtime/... ./internal/storage/... ./internal/logging/... ./internal/ui/...
 
 release: ## Bump the version, commit, tag v<version> and push.
+	@status="$$(git status --porcelain --untracked-files=all)" || exit 1; \
+	if [ -n "$$status" ]; then echo "Release requires a clean working tree:" >&2; echo "$$status" >&2; exit 1; fi
 	bunx bumpp@12.3.0
 
 clean: ## Remove build output.
