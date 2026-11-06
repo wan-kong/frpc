@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -14,6 +15,13 @@ import (
 )
 
 var ErrConflict = domain.Failure(domain.Conflict, "配置已被其他操作修改，请重新打开编辑器", "revision", false, nil)
+
+// ConfigFile is the single JSON file holding configuration and credentials.
+const ConfigFile = "config.json"
+
+// legacyStateFile is read once so installs created before the config file
+// rename keep working. It is removed after the copied file is durable.
+const legacyStateFile = "state.json"
 
 type Store struct {
 	writeMu sync.Mutex
@@ -32,9 +40,18 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{Dir: dir, state: domain.NewState()}
-	b, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	path := filepath.Join(dir, ConfigFile)
+	b, err := os.ReadFile(path)
+	migrating := false
 	if errors.Is(err, os.ErrNotExist) {
-		return s, nil
+		legacy := filepath.Join(dir, legacyStateFile)
+		b, err = os.ReadFile(legacy)
+		if errors.Is(err, os.ErrNotExist) {
+			return s, nil
+		}
+		if err == nil {
+			migrating = true
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -47,6 +64,12 @@ func Open(dir string) (*Store, error) {
 	}
 	if s.state.SchemaVersion != domain.SchemaVersion {
 		return nil, fmt.Errorf("不支持的数据版本 %d，未修改原文件", s.state.SchemaVersion)
+	}
+	if migrating {
+		if err = AtomicWrite(path, b, 0600); err != nil {
+			return nil, err
+		}
+		_ = os.Remove(filepath.Join(dir, legacyStateFile))
 	}
 	return s, nil
 }
@@ -63,9 +86,25 @@ func (s *Store) Update(fn func(*domain.State) error) error {
 	s.mu.Lock()
 	next := clone(s.state)
 	previousRevision := s.state.Revision
+	beforeSettings := s.state.Settings
+	beforeCores := append([]domain.Core(nil), s.state.Cores...)
+	beforeCoreRevision := s.state.CoreRevision
 	s.mu.Unlock()
 	if err := fn(&next); err != nil {
 		return err
+	}
+	// Scope revisions track only the data a command may replace. Monotonic
+	// hide acknowledgements and the separately owned core default are patches.
+	next.Settings.Revision = beforeSettings.Revision
+	comparable := beforeSettings
+	comparable.HideNoticeAcknowledged = next.Settings.HideNoticeAcknowledged
+	comparable.DefaultCoreID = next.Settings.DefaultCoreID
+	if next.Settings != comparable {
+		next.Settings.Revision++
+	}
+	next.CoreRevision = beforeCoreRevision
+	if !reflect.DeepEqual(beforeCores, next.Cores) || beforeSettings.DefaultCoreID != next.Settings.DefaultCoreID {
+		next.CoreRevision++
 	}
 	next.Revision++
 	known := map[string]bool{}
@@ -96,7 +135,7 @@ func (s *Store) Update(fn func(*domain.State) error) error {
 	if len(b) > 16<<20 {
 		return fmt.Errorf("配置超过 16MiB 限制，未覆盖原文件")
 	}
-	path := filepath.Join(s.Dir, "state.json")
+	path := filepath.Join(s.Dir, ConfigFile)
 	if old, err := os.ReadFile(path); err == nil {
 		dir := filepath.Join(s.Dir, "backups")
 		if err = os.MkdirAll(dir, 0700); err != nil {
@@ -172,6 +211,36 @@ func (s *Store) Restore(id string) error {
 			}
 		}
 		return os.ErrNotExist
+	})
+}
+
+// Get, Set and Delete implement Secrets on top of the config file. Values are
+// JSON base64 strings so arbitrary binary (such as the source master key)
+// round-trips without UTF-8 damage.
+func (s *Store) Get(k string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.state.Secrets[k]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+	return append([]byte(nil), v...), nil
+}
+
+func (s *Store) Set(k string, v []byte) error {
+	return s.Update(func(st *domain.State) error {
+		if st.Secrets == nil {
+			st.Secrets = map[string][]byte{}
+		}
+		st.Secrets[k] = append([]byte(nil), v...)
+		return nil
+	})
+}
+
+func (s *Store) Delete(k string) error {
+	return s.Update(func(st *domain.State) error {
+		delete(st.Secrets, k)
+		return nil
 	})
 }
 

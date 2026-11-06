@@ -4,7 +4,7 @@ import "frp-desktop/internal/domain"
 
 // AcknowledgeHideNotice changes only this preference, so it cannot overwrite
 // another settings window's network/login/theme edits.
-func (c *Controller) AcknowledgeHideNotice() (commandErr error) {
+func (c *Controller) acknowledgeHideNotice() (commandErr error) {
 	defer func() { commandErr = commandError(commandErr, domain.StorageFailed) }()
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"frp-desktop/internal/app"
+	"frp-desktop/internal/domain"
 	"frp-desktop/internal/platform"
 	"github.com/egoist/mygo"
 	u "github.com/egoist/mygo/ui"
@@ -17,12 +19,14 @@ func (a *App) ImportCA() {
 	}
 	path := paths[0]
 	var managed string
-	a.Do("导入 CA 证书", func(context.Context) error {
+	operationID := domain.NewID()
+	a.Do("导入 CA 证书", func(ctx context.Context) error {
 		b, err := readBounded(path, 1<<20)
 		if err != nil {
 			return err
 		}
-		managed, err = a.Controller.ImportCA(b)
+		result, err := a.Controller.ExecuteGlobal(ctx, app.GlobalCommand{OperationID: operationID, Action: app.ImportCA{Data: b}})
+		managed = result.Note
 		return err
 	}, func() { a.ProfileDraft.TrustedCA = managed })
 }

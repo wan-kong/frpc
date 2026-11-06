@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"frp-desktop/internal/config"
 	"frp-desktop/internal/core"
 	"frp-desktop/internal/domain"
+	"frp-desktop/internal/logging"
 	run "frp-desktop/internal/runtime"
 	"frp-desktop/internal/storage"
 )
@@ -26,6 +28,7 @@ type Controller struct {
 	mu            sync.Mutex
 	coresMu       sync.RWMutex
 	commandMu     sync.Mutex
+	coreClient    func(string) (*http.Client, error)
 	commandKey    [32]byte
 	receipts      map[string]*commandReceipt
 	commandScopes map[string]chan struct{}
@@ -290,28 +293,20 @@ func (c *Controller) Export(id string, includeSecrets bool) ([]byte, error) {
 	}
 	return config.Compile(p, c.Secrets, nil, includeSecrets)
 }
-func (c *Controller) Install(ctx context.Context, version string) (commandErr error) {
+func (c *Controller) addCore(co domain.Core, expected *uint64) error {
 	c.coresMu.RLock()
 	defer c.coresMu.RUnlock()
-	defer func() { commandErr = commandError(commandErr, domain.DownloadFailed) }()
-	state := c.Store.Snapshot()
-	proxy, err := storage.Secret(c.Secrets, state.Settings.DownloadProxyRef)
+	hash, err := core.Hash(co.Path)
 	if err != nil {
 		return err
 	}
-	client, err := core.NewClient(proxy)
-	if err != nil {
-		return err
+	if hash != co.SHA256 {
+		return domain.Failure(domain.ChecksumMismatch, "登记前内核内容已改变", "coreId", false, nil)
 	}
-	catalog := core.Catalog{Dir: c.Store.Dir, Client: client}
-	co, err := catalog.Install(ctx, version)
-	if err != nil {
-		return err
-	}
-	return c.addCore(co)
-}
-func (c *Controller) addCore(co domain.Core) error {
 	return c.Store.Update(func(s *domain.State) error {
+		if expected != nil && s.CoreRevision != *expected {
+			return storageConflict()
+		}
 		for i, x := range s.Cores {
 			if x.ID == co.ID {
 				s.Cores[i] = co
@@ -323,30 +318,19 @@ func (c *Controller) addCore(co domain.Core) error {
 	})
 }
 
-func (c *Controller) SetDefaultCore(id string) (commandErr error) {
+func (c *Controller) setDefaultCore(id string, expected *uint64) (commandErr error) {
 	defer func() { commandErr = commandError(commandErr, domain.Validation) }()
 	co, ok := c.Store.Snapshot().Core(id)
 	if !ok || !co.Certified {
 		return fmt.Errorf("新连接默认内核必须是已安装的认证版本")
 	}
-	return c.Store.Update(func(s *domain.State) error { s.Settings.DefaultCoreID = id; return nil })
-}
-func (c *Controller) CustomCore(ctx context.Context, path string) (commandErr error) {
-	defer func() { commandErr = commandError(commandErr, domain.Validation) }()
-	co, err := core.Inspect(ctx, path)
-	if err != nil {
-		return err
-	}
-	dest := filepath.Join(c.Store.Dir, "cores", co.ID, "frpc")
-	b, err := os.ReadFile(co.Path)
-	if err != nil {
-		return err
-	}
-	if err = storage.AtomicWrite(dest, b, 0700); err != nil {
-		return err
-	}
-	co.Path = dest
-	return c.addCore(co)
+	return c.Store.Update(func(s *domain.State) error {
+		if expected != nil && s.CoreRevision != *expected {
+			return storageConflict()
+		}
+		s.Settings.DefaultCoreID = id
+		return nil
+	})
 }
 func (c *Controller) switchCore(ctx context.Context, id, coreID string) (commandErr error) {
 	defer func() { commandErr = commandError(commandErr, domain.ApplyFailed) }()
@@ -388,7 +372,7 @@ func (c *Controller) duplicate(ctx context.Context, id, newID string) (commandEr
 	}
 	return c.save(ctx, p, nil)
 }
-func (c *Controller) SaveSettings(settings domain.Settings, proxy *string) (commandErr error) {
+func (c *Controller) saveSettings(settings domain.Settings, proxy *string, expected *uint64) (commandErr error) {
 	defer func() { commandErr = commandError(commandErr, domain.StorageFailed) }()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -411,6 +395,9 @@ func (c *Controller) SaveSettings(settings domain.Settings, proxy *string) (comm
 		}
 	}
 	err := c.Store.Update(func(s *domain.State) error {
+		if expected != nil && s.Settings.Revision != *expected {
+			return storageConflict()
+		}
 		settings.DefaultCoreID = s.Settings.DefaultCoreID
 		settings.HideNoticeAcknowledged = s.Settings.HideNoticeAcknowledged
 		s.Settings = settings
@@ -458,18 +445,34 @@ func (c *Controller) ConsumeResume() []string {
 	return out
 }
 func (c *Controller) Diagnostics(id string) ([]byte, error) {
-	p, ok := c.Store.Snapshot().Profile(id)
-	if !ok {
+	if _, ok := c.Store.Snapshot().Profile(id); !ok {
 		return nil, os.ErrNotExist
 	}
 	lines, err := c.Runtime.Logs(id)
 	if err != nil {
 		return nil, err
 	}
+	return c.diagnosticsSelection(id, lines)
+}
+func (c *Controller) diagnosticsSelection(id string, lines []logging.Line) ([]byte, error) {
+	p, ok := c.Store.Snapshot().Profile(id)
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	if len(lines) > 10000 {
+		return nil, domain.Failure(domain.Validation, "导出日志超过行数限制", "selection", false, nil)
+	}
+	size := 0
+	for _, l := range lines {
+		size += len(l.Text)
+	}
+	if size > 8<<20 {
+		return nil, domain.Failure(domain.Validation, "导出日志超过大小限制", "selection", false, nil)
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "frp-desktop diagnostics\n连接：%s\n时间：%s\n", p.Name, time.Now().Format(time.RFC3339))
 	for _, l := range lines {
-		fmt.Fprintf(&b, "%s [%s] %s\n", l.Time.Format(time.RFC3339), l.Level, l.Text)
+		fmt.Fprintf(&b, "%s [%s] %s\n", l.Time.Format(time.RFC3339Nano), l.Level, logging.Redact(l.Text, nil))
 	}
 	return []byte(b.String()), nil
 }

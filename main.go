@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"frp-desktop/internal/app"
@@ -14,7 +15,6 @@ import (
 	run "frp-desktop/internal/runtime"
 	"frp-desktop/internal/storage"
 	view "frp-desktop/internal/ui"
-	"frp-desktop/internal/update"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
@@ -28,10 +28,11 @@ func main() {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
-	dir, err := mygo.App.Path(mygo.PathUserData)
+	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal(err)
 	}
+	dir := filepath.Join(home, ".frpc")
 	store, err := storage.Open(dir)
 	if err != nil {
 		view.RunRecovery(dir, err)
@@ -41,10 +42,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	controller := app.New(store, storage.Keychain{}, executable)
-	updates, err := update.New(dir, update.MyGoEngine{})
+	controller := app.New(store, store, executable)
+	logDir, err := mygo.App.Path(mygo.PathLogs)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("无法确定日志目录：", err)
+	}
+	if err := controller.Runtime.SetLogDirectory(logDir); err != nil {
+		log.Fatal("无法初始化日志目录：", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -95,19 +99,7 @@ func main() {
 		}
 		quitting = true
 		go func() {
-			if relaunch {
-				if err := controller.WriteResume(ids); err != nil {
-					mygo.RunOnMain(func() {
-						quitting = false
-						if shell != nil {
-							shell.Notice = "无法保存恢复记录：" + err.Error()
-							shell.Window.Invalidate()
-						}
-					})
-					return
-				}
-			}
-			err := controller.Runtime.Close()
+			err := controller.CloseForQuit(relaunch, ids)
 			mygo.RunOnMain(func() {
 				if err != nil {
 					quitting = false
@@ -141,6 +133,14 @@ func main() {
 			systemQuit = false
 		}
 	})
+	viewAction := func(action func(*view.App)) {
+		if shell == nil {
+			return
+		}
+		show()
+		action(shell)
+		shell.Window.Invalidate()
+	}
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "frp-desktop", Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout},
@@ -176,9 +176,22 @@ func main() {
 					show()
 					shell.ImportDialog()
 				}
+			}}, {Label: "导出当前连接…", Click: func(*mygo.MenuItem, *mygo.Window) {
+				if shell != nil && !shell.HasModal() && !shell.Busy {
+					show()
+					shell.ExportDialog()
+				}
 			}}, {Role: mygo.RoleClose},
 		}},
-		{Role: mygo.RoleEditMenu}, {Role: mygo.RoleWindowMenu},
+		{Role: mygo.RoleEditMenu},
+		{Label: "视图", Submenu: []*mygo.MenuItem{
+			{Label: "切换侧栏", Accelerator: "Cmd+Ctrl+S", Click: func(*mygo.MenuItem, *mygo.Window) { viewAction((*view.App).ToggleSidebar) }},
+			{Label: "切换检查器", Accelerator: "CmdOrCtrl+Alt+I", Click: func(*mygo.MenuItem, *mygo.Window) {
+				viewAction(func(a *view.App) { width, _ := a.Window.ContentSize(); a.ToggleInspector(float32(width)) })
+			}},
+			{Label: "切换日志", Accelerator: "CmdOrCtrl+Alt+L", Click: func(*mygo.MenuItem, *mygo.Window) { viewAction((*view.App).ToggleLogs) }},
+		}},
+		{Role: mygo.RoleWindowMenu},
 	}))
 	mygo.App.OnActivate(func(bool) { show() })
 	mygo.App.OnSecondInstance(func([]string, string) { show() })
@@ -186,8 +199,6 @@ func main() {
 	var refreshTray func()
 	mygo.App.WhenReady(func() {
 		shell = view.New(controller)
-		shell.Updates = updates
-		shell.UpdateState = updates.Snapshot()
 		shell.RequestQuit = requestQuit
 		win := mygo.NewWindow(mygo.WindowOptions{Title: "frp-desktop", Width: 1120, Height: 760, MinWidth: 900, MinHeight: 600, StateKey: "main", Hidden: mygo.App.WasOpenedAtLogin(), Content: ui.View(shell.View)})
 		shell.Window = win
@@ -208,18 +219,6 @@ func main() {
 				}
 				if refreshTray != nil {
 					refreshTray()
-				}
-				if shell.SettingsWindow != nil {
-					shell.SettingsWindow.Invalidate()
-				}
-			})
-		}
-		updates.OnChange = func() {
-			win.Update(func() {
-				shell.UpdateState = updates.Snapshot()
-				if shell.UpdateState.Offer && !shell.HasModal() && !shell.Busy {
-					shell.UpdateOpen = true
-					show()
 				}
 				if shell.SettingsWindow != nil {
 					shell.SettingsWindow.Invalidate()
@@ -320,7 +319,6 @@ func main() {
 			}()
 
 		})
-		go updates.Run(ctx)
 		settings := store.Snapshot().Settings
 		switch settings.Appearance {
 		case "dark":

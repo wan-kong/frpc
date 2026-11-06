@@ -10,7 +10,7 @@ import (
 	"frp-desktop/internal/storage"
 )
 
-func (c *Controller) ImportCA(data []byte) (string, error) {
+func (c *Controller) importCA(data []byte) (string, error) {
 	if len(data) > 1<<20 {
 		return "", fmt.Errorf("CA 文件超过 1MiB 限制")
 	}

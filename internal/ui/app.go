@@ -18,7 +18,6 @@ import (
 	"frp-desktop/internal/platform"
 	"frp-desktop/internal/runtime"
 	"frp-desktop/internal/storage"
-	"frp-desktop/internal/update"
 	"github.com/egoist/mygo"
 	u "github.com/egoist/mygo/ui"
 )
@@ -64,9 +63,14 @@ type App struct {
 	viewVersion      uint64
 	LocalPorts       []platform.LocalPort
 	PortsOpen        bool
-	Updates          *update.Manager
 	UpdateOpen       bool
-	UpdateState      update.Snapshot
+	UpdateStage      string
+	UpdateVersion    string
+	UpdateNotes      string
+	UpdateError      string
+	UpdateDownloaded int64
+	UpdateTotal      int64
+	updateRelease    *mygo.Update
 	RequestQuit      func(bool)
 	UpdateCancel     context.CancelFunc
 	Controller       *app.Controller
@@ -95,6 +99,11 @@ type App struct {
 	LogSearch        string
 	LogLevel         string
 	LogPaused        bool
+	LogFiltersOpen   bool
+	LogFrom          string
+	LogUntil         string
+	LogTunnel        string
+	SidebarHidden    bool
 	Logs             []logging.Line
 	ProfileOpen      bool
 
@@ -212,6 +221,10 @@ func copyProfile(p domain.Profile) domain.Profile {
 }
 func (a *App) current() (domain.Profile, bool) { return a.State.Profile(a.Selected) }
 func (a *App) View(c *u.Context) {
+	width, _ := c.Size()
+	if width >= 1040 && a.CompactInspector {
+		a.CompactInspector, a.ShowInspector = false, true
+	}
 	if a.Search != "" {
 		c.OnShortcut(0, u.KeyEscape, func() {
 			if !a.HasModal() && a.Search != "" {
@@ -224,15 +237,17 @@ func (a *App) View(c *u.Context) {
 	c.OnShortcut(u.Cmd, u.KeyN, func() { a.EditTunnel(-1, false) })
 	c.OnShortcut(u.Cmd|u.Shift, u.KeyN, func() { a.EditProfile("") })
 	c.OnShortcut(u.Cmd, u.KeyF, func() { a.SearchHandle.Focus(c) })
-	c.OnShortcut(u.Cmd|u.Alt, u.KeyL, func() { a.ShowLogs = !a.ShowLogs; a.Refresh() })
+	c.OnShortcut(u.Cmd|u.Alt, u.KeyL, a.ToggleLogs)
+	c.OnShortcut(u.Cmd|u.Ctrl, u.KeyS, a.ToggleSidebar)
 	c.OnShortcut(u.Cmd|u.Alt, u.KeyI, func() { width, _ := c.Size(); a.ToggleInspector(width) })
 	u.Column(c).Fill().Children(func() {
 		a.SidebarWidth = clampPane(a.SidebarWidth, sidebarMinimum, sidebarMaximum)
-		u.Split(c, &a.SidebarWidth, func() { a.sidebar(c) }, func() { a.workspace(c) }).Grow(1).OnChange(func() { a.SidebarWidth = clampPane(a.SidebarWidth, sidebarMinimum, sidebarMaximum) })
-		a.draftMenu(c)
-		if a.UpdateState.Offer && !a.UpdateOpen {
-			u.Button(c, "有可用的应用更新…").Disabled(a.HasModal() || a.Busy).OnClick(func() { a.UpdateOpen = true })
+		if a.SidebarHidden {
+			u.Column(c.Key("workspace-only")).Grow(1).Children(func() { a.workspace(c) })
+		} else {
+			u.Split(c, &a.SidebarWidth, func() { a.sidebar(c) }, func() { a.workspace(c) }).Grow(1).OnChange(func() { a.SidebarWidth = clampPane(a.SidebarWidth, sidebarMinimum, sidebarMaximum) })
 		}
+		a.draftMenu(c)
 		if a.Notice != "" {
 			u.Text(c, a.Notice).FontSize(12).TextColor(c.Theme().TextMuted).Padding(8, 16).MaxHeight(60)
 		}
@@ -265,14 +280,20 @@ func (a *App) sidebar(c *u.Context) {
 					}
 					u.Text(c, label).FontSize(11).TextColor(c.Theme().TextMuted).Padding(12, 8, 4, 8)
 				}
-				label := p.Name
 				rt := a.Runtime[p.ID]
+				marker := "○"
 				if rt.Running() {
-					label = "●  " + label
-				} else {
-					label = "○  " + label
+					marker = "●"
 				}
-				button := u.Button(c.Key(p.ID), label).FillWidth()
+				label := ProcessLabel(rt)
+				tint := statusTint(c.Theme(), label, rt.Error != "")
+				if a.Selected == p.ID {
+					tint = c.Theme().AccentText
+				}
+				button := u.Button(c.Key(p.ID), "").Label(p.Name + "，" + label).FillWidth().Children(func() {
+					u.Text(c, marker).TextColor(tint).Width(12)
+					u.Text(c, p.Name).SingleLine().Grow(1)
+				})
 				if a.Selected == p.ID {
 					button.Background(c.Theme().Accent).TextColor(c.Theme().AccentText)
 				}
@@ -281,7 +302,7 @@ func (a *App) sidebar(c *u.Context) {
 		})
 		u.Divider(c)
 		u.Button(c, "内核").OnClick(func() { a.SelectScope("cores") })
-		u.Button(c, "添加连接…").Disabled(a.Busy).OnClick(func() { a.EditProfile("") })
+		iconButton(c, "添加连接…", addIcon).Disabled(a.Busy).OnClick(func() { a.EditProfile("") })
 	})
 }
 func (a *App) workspace(c *u.Context) {
@@ -303,16 +324,16 @@ func (a *App) workspace(c *u.Context) {
 				a.Selection.Clear()
 				a.SelectedRow = -1
 			}
-			u.Button(c, "检查器").OnClick(func() { width, _ := c.Size(); a.ToggleInspector(width) })
-			u.Button(c, "日志").Disabled(!has).OnClick(func() { a.ShowLogs = !a.ShowLogs; a.Refresh() })
+			iconButton(c, "检查器", inspectorIcon).OnClick(func() { width, _ := c.Size(); a.ToggleInspector(width) })
+			iconButton(c, "日志", logIcon).Disabled(!has).OnClick(a.ToggleLogs)
 		})
 		if len(a.State.Profiles) == 0 {
 			u.Column(c).Grow(1).Center().Gap(12).Children(func() {
 				u.Text(c, "把本地服务连接到外部网络").FontSize(20).Bold()
 				u.Text(c, "填写已有 frps 的地址和凭证，然后添加隧道。").TextColor(c.Theme().TextMuted)
 				u.Row(c).Gap(8).Children(func() {
-					u.PrimaryButton(c, "添加第一个连接…").Disabled(a.Busy).OnClick(func() { a.EditProfile("") })
-					u.Button(c, "导入 frpc.toml…").Disabled(a.Busy).OnClick(a.ImportDialog)
+					primaryIconButton(c, "添加第一个连接…", addIcon).Disabled(a.Busy).OnClick(func() { a.EditProfile("") })
+					iconButton(c, "导入 frpc.toml…", importIcon).Disabled(a.Busy).OnClick(a.ImportDialog)
 				})
 			})
 			return
@@ -321,13 +342,13 @@ func (a *App) workspace(c *u.Context) {
 			rt := a.Runtime[p.ID]
 			u.Row(c).Padding(0, 16, 12, 16).Gap(8).AlignItems(u.Center).Children(func() {
 				u.Text(c, domain.Endpoint(p.ServerAddr, p.ServerPort)).Font("monospace").TextColor(c.Theme().TextMuted).Grow(1)
-				u.Text(c, ProcessLabel(rt)).FontSize(12)
+				u.Text(c, ProcessLabel(rt)).FontSize(12).TextColor(statusTint(c.Theme(), ProcessLabel(rt), rt.Error != ""))
 				if rt.Running() {
-					u.Button(c, "停止").Disabled(a.Busy).OnClick(func() {
+					iconButton(c, "停止", stopIcon).Disabled(a.Busy).OnClick(func() {
 						a.RunProfile("正在停止连接", p, app.StopProfile{})
 					})
 				} else {
-					u.PrimaryButton(c, "连接").Disabled(a.Busy).OnClick(func() {
+					primaryIconButton(c, "连接", connectIcon).Disabled(a.Busy).OnClick(func() {
 						a.RunProfile("正在启动连接", p, app.StartProfile{})
 					})
 				}
@@ -503,8 +524,8 @@ func (a *App) tunnelTable(c *u.Context) {
 		if j == 2 || j == 3 {
 			el.Font("monospace")
 		}
-		if r.Err != "" && j == 4 {
-			el.TextColor(c.Theme().Danger)
+		if j == 4 {
+			el.TextColor(statusTint(c.Theme(), r.Status, r.Err != ""))
 		}
 	}).Grow(1).FillHeight().MinHeight(0).Label("隧道列表")
 	if table.Submitted() && a.SelectedRow >= 0 && a.SelectedRow < len(rows) {
@@ -531,7 +552,13 @@ func (a *App) tunnelTable(c *u.Context) {
 	}
 }
 func (a *App) inspector(c *u.Context) {
-	u.Column(c).Width(inspectorWidth).Padding(16).Gap(12).Label("隧道检查器").Children(func() {
+	panel := u.Column(c.Key("inspector")).Width(inspectorWidth).Padding(16).Gap(12).Label("隧道检查器").Transition(paneTransition(c))
+	if a.CompactInspector {
+		intro := panel.Timeline("compact-inspector-appear", u.TimelineOptions{Run: 1})
+		shown := intro.Tween(u.Tween{From: 0, To: 1, Duration: paneMotionDuration}, u.AtTime(0))
+		panel.Opacity(shown).Translate(0, (1-shown)*4)
+	}
+	panel.Children(func() {
 		rows := a.rows()
 		a.sortRows(rows)
 		if a.SelectedRow < 0 || a.SelectedRow >= len(rows) {
@@ -545,7 +572,7 @@ func (a *App) inspector(c *u.Context) {
 		}
 		u.Text(c, name).FontSize(18).Bold()
 		u.Text(c, "连接："+r.Profile.Name)
-		u.Text(c, "状态："+r.Status)
+		u.Text(c, "状态："+r.Status).TextColor(statusTint(c.Theme(), r.Status, r.Err != ""))
 		if r.Err != "" {
 			u.Text(c, r.Err).TextColor(c.Theme().Danger).Wrap()
 		}
@@ -590,16 +617,30 @@ func (a *App) inspector(c *u.Context) {
 	})
 }
 func (a *App) logView(c *u.Context) {
-	u.Column(c).Grow(1).FillWidth().MinHeight(0).Padding(8, 16).Gap(8).Label("日志面板").Children(func() {
+	panel := u.Column(c.Key("log-panel")).Grow(1).FillWidth().MinHeight(0).Padding(8, 16).Gap(8).Label("日志面板")
+	intro := panel.Timeline("log-appear", u.TimelineOptions{Run: 1})
+	shown := intro.Tween(u.Tween{From: 0, To: 1, Duration: paneMotionDuration}, u.AtTime(0))
+	panel.Opacity(shown).Translate(0, (1-shown)*4)
+	panel.Children(func() {
 		u.Row(c).Gap(8).Children(func() {
 			u.Text(c, "日志").Bold()
-			u.Select(c, &a.LogLevel, []string{"全部", "error", "warn", "info", "debug"}).Width(90)
+			u.Select(c, &a.LogLevel, []string{"全部", "error", "warn", "info", "debug", "trace"}).Width(90)
 			u.SearchField(c, &a.LogSearch).Placeholder("过滤日志").Grow(1).OnChange(a.queueLogSearch)
+			a.logFilters(c)
 			u.Checkbox(c, &a.LogPaused, "暂停跟随")
 			u.Button(c, "复制").OnClick(a.CopyLogs)
 			u.Button(c, "导出…").OnClick(a.ExportLogs)
 		})
 		lines := a.filteredLogs()
+		if _, _, err := a.logTimeBounds(); err != nil {
+			u.Text(c, err.Error()).TextColor(c.Theme().Danger).Wrap()
+		}
+		if a.LogTunnel != "" && a.LogTunnel != "全部日志" {
+			u.Text(c, a.LogTunnel+" · 仅匹配带完整名称标签的日志").FontSize(11).TextColor(c.Theme().TextMuted).SingleLine()
+			if _, valid := a.logTunnelTag(); !valid {
+				u.Text(c, "关联对象已变更，请重新选择或重置筛选").TextColor(c.Theme().Danger).Wrap()
+			}
+		}
 		a.LogList.Key = func(i int) any { return lines[i].Seq }
 		a.LogList.FollowEnd = !a.LogPaused
 		u.List(c.Key("logs"), &a.LogList, len(lines), func(i int) {
@@ -626,7 +667,7 @@ func ProcessLabel(r domain.Runtime) string {
 		if r.Session == "logged_in" && time.Since(r.SessionObservedAt) <= 10*time.Second {
 			return "已登录（日志确认）"
 		}
-		if r.Session == "connected" {
+		if r.Session == "connected" && !r.ObservedAt.IsZero() && time.Since(r.ObservedAt) <= 10*time.Second {
 			return "运行中 · 已确认代理注册"
 		}
 		return "运行中 · 连接状态未确认"
@@ -988,6 +1029,10 @@ func (a *App) ExportDialog() {
 	a.Do("导出配置", func(ctx context.Context) error { _, err := a.Controller.Execute(ctx, cmd); return err }, nil)
 }
 func (a *App) ExportLogs() {
+	if err := a.logFilterError(); err != nil {
+		a.Notice = err.Error()
+		return
+	}
 	p, ok := a.current()
 	if !ok {
 		return
@@ -996,7 +1041,8 @@ func (a *App) ExportLogs() {
 	if err != nil || path == "" {
 		return
 	}
-	cmd := profileCommand(p, app.ExportDiagnostics{Path: path})
+	selection := &app.LogSelection{Lines: append([]logging.Line(nil), a.filteredLogs()...)}
+	cmd := profileCommand(p, app.ExportDiagnostics{Path: path, Selection: selection})
 	a.Do("导出脱敏日志", func(ctx context.Context) error { _, err := a.Controller.Execute(ctx, cmd); return err }, nil)
 }
 
@@ -1019,7 +1065,7 @@ func (a *App) cores(c *u.Context) {
 					}
 				})
 			}
-			u.Button(c, "选择自定义 frpc…").Disabled(a.Busy).OnClick(a.CustomCoreDialog)
+			u.Button(c, "选择自定义 frpc…").Disabled(a.Busy || a.CoreBusy).OnClick(a.CustomCoreDialog)
 		})
 		u.Scroll(c).Grow(1).Children(func() {
 			for _, co := range a.State.Cores {
@@ -1032,7 +1078,8 @@ func (a *App) cores(c *u.Context) {
 					if co.Certified {
 						u.Button(c, "设为新连接默认").Disabled(a.Busy || a.State.Settings.DefaultCoreID == co.ID).OnClick(func() {
 							id := co.ID
-							a.Do("设置默认内核", func(context.Context) error { return a.Controller.SetDefaultCore(id) }, nil)
+							cmd := app.GlobalCommand{OperationID: domain.NewID(), ExpectedRevision: a.State.CoreRevision, Action: app.SetDefaultCore{ID: id}}
+							a.Do("设置默认内核", func(ctx context.Context) error { _, err := a.Controller.ExecuteGlobal(ctx, cmd); return err }, nil)
 						})
 					}
 					if !co.Bundled {
@@ -1040,7 +1087,8 @@ func (a *App) cores(c *u.Context) {
 							id := co.ID
 							result, err := mygo.Dialog.Message(mygo.MessageOptions{Parent: a.Window, Type: mygo.MessageWarning, Message: "删除此内核版本？", Detail: "仅删除应用内核库中的文件。连接、回收区和恢复快照引用的版本会保留。", Buttons: []string{"取消", "删除内核"}, DefaultButton: 0, CancelButton: 0, DestructiveButtons: []int{1}})
 							if err == nil && result.Button == 1 {
-								a.Do("删除未引用内核", func(context.Context) error { return a.Controller.DeleteCore(id) }, nil)
+								cmd := app.GlobalCommand{OperationID: domain.NewID(), ExpectedRevision: a.State.CoreRevision, Action: app.DeleteCore{ID: id}}
+								a.Do("删除未引用内核", func(ctx context.Context) error { _, err := a.Controller.ExecuteGlobal(ctx, cmd); return err }, nil)
 							}
 						})
 					}
@@ -1057,7 +1105,8 @@ func (a *App) CustomCoreDialog() {
 		return
 	}
 	path := paths[0]
-	a.Do("检查自定义内核", func(ctx context.Context) error { return a.Controller.CustomCore(ctx, path) }, nil)
+	cmd := app.GlobalCommand{OperationID: domain.NewID(), ExpectedRevision: a.State.CoreRevision, Action: app.CustomCore{Path: path}}
+	a.CoreTask("检查自定义内核", func(ctx context.Context) error { _, err := a.Controller.ExecuteGlobal(ctx, cmd); return err }, nil)
 }
 
 func (a *App) OpenSettings() {
@@ -1096,12 +1145,8 @@ func (a *App) SettingsView(c *u.Context) {
 			u.Button(c, "保存设置").Disabled(a.Busy).OnClick(a.SaveSettings)
 			u.Divider(c)
 			u.Text(c, "应用更新").FontSize(15).Bold()
-			u.Text(c, "应用更新与 frpc 内核版本分开管理。")
+			u.Text(c, "通过 MyGo 内置更新器读取 GitHub Release；应用更新与 frpc 内核版本分开管理。")
 			u.Button(c, "检查更新…").OnClick(a.CheckUpdates)
-			auto := a.UpdateState.Preferences.AutomaticChecks
-			u.Checkbox(c, &auto, "自动检查应用更新").OnClick(func() { a.saveUpdateChecks(auto) })
-			downloads := a.UpdateState.Preferences.AutomaticDownloads
-			u.Checkbox(c, &downloads, "自动下载并安装，下次启动生效").OnClick(func() { a.saveUpdateDownloads(downloads) })
 			u.Divider(c)
 			u.Text(c, "数据与备份").FontSize(15).Bold()
 			u.Row(c).Gap(8).Children(func() {
@@ -1132,12 +1177,15 @@ func (a *App) SettingsView(c *u.Context) {
 func (a *App) SaveSettings() {
 	settings := a.Settings
 	proxy := a.DownloadProxy
-	a.Do("保存设置", func(context.Context) error {
-		if err := mygo.App.SetOpenAtLogin(settings.OpenAtLogin); err != nil {
-			return err
-		}
-		return a.Controller.SaveSettings(settings, &proxy)
+	cmd := app.GlobalCommand{OperationID: domain.NewID(), ExpectedRevision: settings.Revision, Action: app.SaveAppSettings{Settings: settings, Proxy: &proxy, ApplySystemLogin: true}}
+	var result app.CommandResult
+	a.Do("保存设置", func(ctx context.Context) error {
+		var err error
+		result, err = a.Controller.ExecuteGlobal(ctx, cmd)
+		return err
 	}, func() {
+		a.Settings.Revision = result.State.Settings.Revision
+		a.Settings.DownloadProxyRef = result.State.Settings.DownloadProxyRef
 		switch settings.Appearance {
 		case "dark":
 			mygo.Theme.SetSource(mygo.ThemeDark)
@@ -1190,13 +1238,8 @@ func (a *App) backupModal(c *u.Context) {
 						if err != nil || path == "" {
 							return
 						}
-						a.Do("加密备份", func(context.Context) error {
-							blob, err := a.Controller.Backup(password)
-							if err != nil {
-								return err
-							}
-							return storage.AtomicWrite(path, blob, 0600)
-						}, func() { a.BackupOpen = false; a.BackupPassword = "" })
+						cmd := app.GlobalCommand{OperationID: domain.NewID(), ExpectedRevision: a.State.Revision, Action: app.ExportBackup{Path: path, Password: password}}
+						a.Do("加密备份", func(ctx context.Context) error { _, err := a.Controller.ExecuteGlobal(ctx, cmd); return err }, func() { a.BackupOpen = false; a.BackupPassword = "" })
 					}
 				})
 			})

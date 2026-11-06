@@ -57,12 +57,12 @@ func RecoverSnapshot(dir string, s domain.State) error {
 	}
 	// Work on a copy so disabling automatic connection does not mutate the preview.
 	s.Profiles = append([]domain.Profile(nil), s.Profiles...)
-	path := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, ConfigFile)
 	original, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if err = AtomicWrite(filepath.Join(dir, "state.before-recovery-"+domain.NewID()+".json"), original, 0600); err != nil {
+	if err = AtomicWrite(filepath.Join(dir, "config.before-recovery-"+domain.NewID()+".json"), original, 0600); err != nil {
 		return err
 	}
 	for i := range s.Profiles {

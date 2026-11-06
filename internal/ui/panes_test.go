@@ -65,7 +65,7 @@ func TestSidebarDragAndKeyboardStayInApprovedRange(t *testing.T) {
 func TestLogPaneDragKeyboardResizeAndReopenPreserveHeight(t *testing.T) {
 	a := paneApp(t)
 	tt := u.NewTester(a.View, 1120, 760)
-	tt.Advance(time.Millisecond)
+	tt.Advance(200 * time.Millisecond)
 	logPane := paneRect(t, tt, "日志面板")
 	if !closeSize(logPane.H, logDefaultHeight) {
 		t.Fatal("default log height", logPane, "body", paneRect(t, tt, "连接工作区"), "top", a.logTopHeight, "region", a.logRegionHeight, "table", paneRect(t, tt, "隧道工作区"))
@@ -94,11 +94,12 @@ func TestLogPaneDragKeyboardResizeAndReopenPreserveHeight(t *testing.T) {
 	if err := tt.Click("日志"); err != nil {
 		t.Fatal(err)
 	}
+	tt.Advance(200 * time.Millisecond)
 	if !closeSize(paneRect(t, tt, "日志面板").H, preferred) {
 		t.Fatal("log height lost on reopen")
 	}
 	tt.SetSize(1120, 900)
-	tt.Advance(time.Millisecond)
+	tt.Advance(200 * time.Millisecond)
 	if !closeSize(paneRect(t, tt, "日志面板").H, preferred) {
 		t.Fatal("window resize changed preferred log height")
 	}
@@ -115,9 +116,10 @@ func TestPanesFitCompactDarkZoomAndLongText(t *testing.T) {
 				a.State.Profiles[0].ServerAddr = "a-very-long-development-hostname.example.net"
 				tt := u.NewTester(a.View, width, 600)
 				tt.SetDark(dark)
+				tt.Advance(200 * time.Millisecond)
 				for _, zoom := range []float32{1, 1.25} {
 					tt.SetZoom(zoom)
-					tt.Advance(time.Millisecond)
+					tt.Advance(200 * time.Millisecond)
 					tt.Frame()
 					logPane, table := paneRect(t, tt, "日志面板"), paneRect(t, tt, "隧道工作区")
 					if logPane.H < 40 || table.H < 40 || logPane.Y+logPane.H > 600+1 || table.Y+table.H > logPane.Y+1 {
@@ -152,7 +154,7 @@ func TestLogLayoutDoesNotCreateAnIdleFrameLoop(t *testing.T) {
 	a := paneApp(t)
 	builds := 0
 	tt := u.NewTester(func(c *u.Context) { builds++; a.View(c) }, 1120, 760)
-	tt.Advance(time.Millisecond)
+	tt.Advance(200 * time.Millisecond)
 	initial := builds
 	tt.Advance(time.Second)
 	if builds != initial {

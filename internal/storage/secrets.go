@@ -11,19 +11,16 @@ import (
 	"sync"
 
 	"frp-desktop/internal/domain"
-	"github.com/egoist/mygo"
 )
+
+// ErrSecretNotFound reports a missing credential in the config file.
+var ErrSecretNotFound = errors.New("secret not found")
 
 type Secrets interface {
 	Get(string) ([]byte, error)
 	Set(string, []byte) error
 	Delete(string) error
 }
-type Keychain struct{}
-
-func (Keychain) Get(k string) ([]byte, error) { return mygo.Secrets.Get("frp-desktop/" + k) }
-func (Keychain) Set(k string, v []byte) error { return mygo.Secrets.Set("frp-desktop/"+k, v) }
-func (Keychain) Delete(k string) error        { return mygo.Secrets.Delete("frp-desktop/" + k) }
 
 type MemorySecrets struct {
 	mu     sync.Mutex
@@ -35,7 +32,7 @@ func (m *MemorySecrets) Get(k string) ([]byte, error) {
 	defer m.mu.Unlock()
 	v, ok := m.Values[k]
 	if !ok {
-		return nil, mygo.ErrSecretNotFound
+		return nil, ErrSecretNotFound
 	}
 	return append([]byte(nil), v...), nil
 }
@@ -61,7 +58,7 @@ func PutSecret(s Secrets, value string) (string, error) {
 	}
 	id := domain.NewID()
 	if err := s.Set(id, []byte(value)); err != nil {
-		return "", domain.Failure(domain.SecretUnavailable, "无法保存凭证，请检查 Keychain 状态和凭证长度", "", true, err)
+		return "", domain.Failure(domain.SecretUnavailable, "无法保存凭证，请检查 ~/.frpc/config.json 的权限和可用空间", "", true, err)
 	}
 	return id, nil
 }
@@ -71,7 +68,7 @@ func Secret(s Secrets, ref string) (string, error) {
 	}
 	b, err := s.Get(ref)
 	if err != nil {
-		return "", domain.Failure(domain.SecretUnavailable, "无法读取凭证，请检查 Keychain 是否已解锁", "", true, err)
+		return "", domain.Failure(domain.SecretUnavailable, "无法读取凭证，请检查 ~/.frpc/config.json 是否存在且完整", "", true, err)
 	}
 	return string(b), err
 }
@@ -84,7 +81,7 @@ type Vault struct {
 
 func (v *Vault) key() ([]byte, error) {
 	k, err := v.Secrets.Get("source-master-key")
-	if errors.Is(err, mygo.ErrSecretNotFound) {
+	if errors.Is(err, ErrSecretNotFound) {
 		k = make([]byte, 32)
 		if _, err = rand.Read(k); err == nil {
 			err = v.Secrets.Set("source-master-key", k)

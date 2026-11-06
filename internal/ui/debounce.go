@@ -41,14 +41,33 @@ func (a *App) filteredLogs() []logging.Line {
 		first = a.Logs[0].Seq
 		last = a.Logs[len(a.Logs)-1].Seq
 	}
-	key := fmt.Sprintf("%s/%d/%d/%d/%s/%s", a.Selected, first, last, len(a.Logs), a.LogLevel, a.logAppliedSearch)
+	tag, valid := a.logTunnelTag()
+	key := fmt.Sprintf("%s/%d/%d/%d/%s/%s/%s/%s/%s/%t", a.Selected, first, last, len(a.Logs), a.LogLevel, a.logAppliedSearch, a.LogFrom, a.LogUntil, tag, valid)
 	if key == a.logFilterKey {
 		return a.logFiltered
 	}
 	query := strings.ToLower(a.logAppliedSearch)
+	from, until, err := a.logTimeBounds()
+	if err != nil || !valid {
+		a.logFilterKey, a.logFiltered = key, nil
+		return nil
+	}
+	allLevels := a.LogLevel == "" || a.LogLevel == "全部"
+	if allLevels && query == "" && tag == "" && from.IsZero() && until.IsZero() {
+		// Log snapshots are immutable on the UI thread. With no filter, reuse
+		// the snapshot instead of scanning and copying up to 10,000 lines.
+		a.logFilterKey, a.logFiltered = key, a.Logs
+		return a.logFiltered
+	}
 	out := make([]logging.Line, 0, len(a.Logs))
 	for _, line := range a.Logs {
-		if (a.LogLevel == "全部" || a.LogLevel == line.Level) && strings.Contains(strings.ToLower(line.Text), query) {
+		if !from.IsZero() && line.Time.Before(from) || !until.IsZero() && !line.Time.Before(until) {
+			continue
+		}
+		if tag != "" && !strings.Contains(line.Text, tag) {
+			continue
+		}
+		if (allLevels || a.LogLevel == line.Level) && (query == "" || strings.Contains(strings.ToLower(line.Text), query)) {
 			out = append(out, line)
 		}
 	}

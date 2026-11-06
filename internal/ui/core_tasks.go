@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"frp-desktop/internal/app"
+	"frp-desktop/internal/domain"
 	"time"
 )
 
@@ -38,5 +40,6 @@ func (a *App) CoreTask(label string, job func(context.Context) error, after func
 }
 func (a *App) InstallCore() {
 	version := a.CoreVersion
-	a.CoreTask("从 GitHub 下载并核验内核", func(ctx context.Context) error { return a.Controller.Install(ctx, version) }, nil)
+	cmd := app.GlobalCommand{OperationID: domain.NewID(), ExpectedRevision: a.State.CoreRevision, Action: app.InstallCore{Version: version}}
+	a.CoreTask("从 GitHub 下载并核验内核", func(ctx context.Context) error { _, err := a.Controller.ExecuteGlobal(ctx, cmd); return err }, nil)
 }

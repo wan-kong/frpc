@@ -6,6 +6,8 @@ func (a *App) SelectScope(id string) {
 	a.Selection.Clear()
 	a.Search = ""
 	a.Logs = nil
+	a.LogTunnel = ""
+	a.LogFiltersOpen = false
 	a.rowCacheKey = ""
 	a.UpdateObservationScope()
 }

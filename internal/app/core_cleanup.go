@@ -13,7 +13,7 @@ import (
 var officialCoreID = regexp.MustCompile(`^official-[0-9]+\.[0-9]+\.[0-9]+-(arm64|amd64)$`)
 
 // DeleteCore removes only a registered, unreferenced binary in its exact owned path.
-func (c *Controller) DeleteCore(id string) (commandErr error) {
+func (c *Controller) deleteCore(id string, expected *uint64) (commandErr error) {
 	defer func() { commandErr = commandError(commandErr, domain.StorageFailed) }()
 	c.coresMu.Lock()
 	defer c.coresMu.Unlock()
@@ -26,6 +26,9 @@ func (c *Controller) DeleteCore(id string) (commandErr error) {
 	return c.Runtime.WithUnusedCore(co.Path, func() error {
 		var binary string
 		err := c.Store.Update(func(s *domain.State) error {
+			if expected != nil && s.CoreRevision != *expected {
+				return storageConflict()
+			}
 			co, ok := s.Core(id)
 			if !ok {
 				return os.ErrNotExist

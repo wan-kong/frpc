@@ -52,6 +52,7 @@ type Supervisor struct {
 	coreMu     sync.RWMutex
 	entries    map[string]*entry
 	Dir        string
+	logDir     string
 	Secrets    storage.Secrets
 	Vault      *storage.Vault
 	Executable string
@@ -60,14 +61,41 @@ type Supervisor struct {
 }
 
 func New(dir string, secrets storage.Secrets, executable string) *Supervisor {
-	return &Supervisor{observationVisible: true, observationChanged: make(chan struct{}), Dir: dir, Secrets: secrets, Vault: &storage.Vault{Dir: dir, Secrets: secrets}, Executable: executable, entries: map[string]*entry{}}
+	return &Supervisor{observationVisible: true, observationChanged: make(chan struct{}), Dir: dir, logDir: filepath.Join(dir, "logs"), Secrets: secrets, Vault: &storage.Vault{Dir: dir, Secrets: secrets}, Executable: executable, entries: map[string]*entry{}}
+}
+
+// SetLogDirectory is startup configuration, before any profile obtains a log
+// buffer. It never moves or deletes the previous directory or its contents.
+func (s *Supervisor) SetLogDirectory(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("日志目录必须是绝对路径")
+	}
+	dir = filepath.Clean(dir)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.entries) != 0 || s.closed {
+		return fmt.Errorf("日志目录必须在初始化连接之前设置")
+	}
+	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("日志目录不能是符号链接")
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return err
+	}
+	s.logDir = dir
+	return nil
 }
 func (s *Supervisor) get(id string) *entry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e := s.entries[id]
 	if e == nil {
-		e = &entry{snapshot: domain.Runtime{ProfileID: id, Process: "stopped", Session: "unknown"}, log: logging.New(filepath.Join(s.Dir, "logs", id), nil)}
+		e = &entry{snapshot: domain.Runtime{ProfileID: id, Process: "stopped", Session: "unknown"}, log: logging.New(filepath.Join(s.logDir, id), nil)}
 		e.log.Notify = s.notify
 		e.log.OnLine = func(line logging.Line, raw string) { s.observeLog(e, line, raw) }
 		s.entries[id] = e

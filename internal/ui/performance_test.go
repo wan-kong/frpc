@@ -3,9 +3,27 @@ package ui
 import (
 	"fmt"
 	"frp-desktop/internal/domain"
+	"frp-desktop/internal/logging"
 	u "github.com/egoist/mygo/ui"
 	"testing"
 )
+
+// Every iteration invalidates the sequence cache like an arriving log batch;
+// this is not a benchmark of repeatedly reading an unchanged cached result.
+func BenchmarkIncomingUnfilteredLogs(b *testing.B) {
+	a := &App{Selected: domain.NewID(), LogLevel: "全部"}
+	for i := 0; i < 10000; i++ {
+		a.Logs = append(a.Logs, logging.Line{Seq: uint64(i + 1), Level: "info", Text: "中文日志：连接已注册，等待下一次请求"})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		a.Logs[len(a.Logs)-1].Seq++
+		if len(a.filteredLogs()) != len(a.Logs) {
+			b.Fatal("unfiltered logs were dropped")
+		}
+	}
+}
 
 func BenchmarkTunnelList(b *testing.B) {
 	for _, count := range []int{500, 5000} {

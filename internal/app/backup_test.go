@@ -134,7 +134,7 @@ func TestIntegrationSaveChecksRevisionAndCredentialPersistence(t *testing.T) {
 	if next.TokenRef != saved.TokenRef {
 		t.Fatal("unchanged credential reference changed")
 	}
-	bytes, err := os.ReadFile(filepath.Join(c.Store.Dir, "state.json"))
+	bytes, err := os.ReadFile(filepath.Join(c.Store.Dir, storage.ConfigFile))
 	if err != nil {
 		t.Fatal(err)
 	}

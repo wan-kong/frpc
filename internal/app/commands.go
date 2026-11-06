@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +12,7 @@ import (
 	"sort"
 
 	"frp-desktop/internal/domain"
+	"frp-desktop/internal/logging"
 	run "frp-desktop/internal/runtime"
 )
 
@@ -100,7 +99,11 @@ type ExportProfile struct {
 
 func (ExportProfile) commandKind() string { return "ExportProfile" }
 
-type ExportDiagnostics struct{ Path string }
+type LogSelection struct{ Lines []logging.Line }
+type ExportDiagnostics struct {
+	Path      string
+	Selection *LogSelection
+}
 
 func (ExportDiagnostics) commandKind() string { return "ExportDiagnostics" }
 
@@ -179,27 +182,13 @@ func (c *Controller) Execute(ctx context.Context, cmd Command) (CommandResult, e
 	if err != nil {
 		return CommandResult{}, domain.Failure(domain.Validation, "命令参数无法编码", "", false, err)
 	}
-	mac := hmac.New(sha256.New, c.commandKey[:])
-	_, _ = mac.Write(data)
-	var fingerprint [32]byte
-	copy(fingerprint[:], mac.Sum(nil))
-	c.commandMu.Lock()
-	prior := c.receipts[cmd.Meta.OperationID]
-	if prior != nil {
-		c.commandMu.Unlock()
-		if prior.fingerprint != fingerprint {
-			return CommandResult{}, domain.Failure(domain.Conflict, "此 operationID 已用于不同的命令，请使用新的操作标识", "operationId", false, nil)
-		}
-		select {
-		case <-ctx.Done():
-			return CommandResult{}, commandError(ctx.Err(), domain.Canceled)
-		case <-prior.done:
-			return c.commandReply(prior.effect, true), prior.err
-		}
+	receipt, replayed, err := c.reserveCommand(ctx, cmd.Meta.OperationID, data)
+	if err != nil {
+		return CommandResult{}, err
 	}
-	receipt := &commandReceipt{fingerprint: fingerprint, done: make(chan struct{})}
-	c.receipts[cmd.Meta.OperationID] = receipt
-	c.commandMu.Unlock()
+	if replayed {
+		return c.commandReply(receipt.effect, true), receipt.err
+	}
 	defer close(receipt.done)
 	scopes := make(map[string]uint64, len(cmd.Meta.ExpectedProfiles)+1)
 	scopes[cmd.Meta.ProfileID] = cmd.Meta.ExpectedRevision
@@ -453,7 +442,13 @@ func (c *Controller) executeAction(ctx context.Context, cmd Command) (commandEff
 		if action.Path == "" {
 			return effect, domain.Failure(domain.Validation, "缺少导出路径", "path", false, nil)
 		}
-		data, err := c.Diagnostics(cmd.Meta.ProfileID)
+		var data []byte
+		var err error
+		if action.Selection == nil {
+			data, err = c.Diagnostics(cmd.Meta.ProfileID)
+		} else {
+			data, err = c.diagnosticsSelection(cmd.Meta.ProfileID, action.Selection.Lines)
+		}
 		if err != nil {
 			return effect, err
 		}

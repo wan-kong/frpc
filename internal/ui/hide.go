@@ -1,6 +1,11 @@
 package ui
 
-import "github.com/egoist/mygo"
+import (
+	"context"
+	"frp-desktop/internal/app"
+	"frp-desktop/internal/domain"
+	"github.com/egoist/mygo"
+)
 
 func (a *App) HideMainWindow() {
 	if a.Window == nil || a.disposed {
@@ -35,8 +40,9 @@ func (a *App) hideWithNotice(showNotice func() error, hide func()) {
 		return
 	}
 	controller := a.Controller
+	cmd := app.GlobalCommand{OperationID: domain.NewID(), Action: app.AcknowledgeHideNotice{}}
 	go func() {
-		err := controller.AcknowledgeHideNotice()
+		_, err := controller.ExecuteGlobal(context.Background(), cmd)
 		dispatch(func() {
 			if err != nil {
 				a.Notice = "本次已确认后台运行，但偏好记录失败，下次启动可能再次提示：" + err.Error()

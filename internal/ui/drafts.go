@@ -73,7 +73,7 @@ func (a *App) tunnelStamp() [32]byte {
 	}{t, v, a.EditingVisitor, a.TunnelSecret, a.HTTPPassword, a.LocalPort, a.RemotePort, a.Domains, a.Locations, a.Batch})
 }
 func (a *App) HasModal() bool {
-	return a.ProfileOpen || a.TunnelOpen || a.RawOpen || a.BackupOpen || a.MoveOpen || a.PortsOpen || a.CompactInspector || a.UpdateOpen || a.DraftCloseOpen || a.ResidualOpen
+	return a.ProfileOpen || a.TunnelOpen || a.RawOpen || a.BackupOpen || a.MoveOpen || a.PortsOpen || a.CompactInspector || a.UpdateOpen || a.DraftCloseOpen || a.ResidualOpen || a.LogFiltersOpen
 }
 func (a *App) editorDirty(kind string) bool {
 	switch kind {

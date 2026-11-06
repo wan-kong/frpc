@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"frp-desktop/internal/app"
+	"frp-desktop/internal/domain"
 	"github.com/egoist/mygo"
 )
 
@@ -18,6 +20,7 @@ func (a *App) PreviewRestore() {
 		if err != nil || result.Button != 1 {
 			return
 		}
-		a.Do("恢复备份", func(context.Context) error { return a.Controller.RestoreBackup(blob, password) }, func() { a.BackupOpen = false; a.BackupData = nil; a.BackupPassword = "" })
+		cmd := app.GlobalCommand{OperationID: domain.NewID(), Action: app.RestoreBackup{Data: blob, Password: password}}
+		a.Do("恢复备份", func(ctx context.Context) error { _, err := a.Controller.ExecuteGlobal(ctx, cmd); return err }, func() { a.BackupOpen = false; a.BackupData = nil; a.BackupPassword = "" })
 	})
 }

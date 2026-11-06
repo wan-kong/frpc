@@ -91,6 +91,7 @@ type Core struct {
 }
 
 type Settings struct {
+	Revision               uint64 `json:"revision,omitempty"`
 	DefaultCoreID          string `json:"defaultCoreId,omitempty"`
 	OpenAtLogin            bool   `json:"openAtLogin"`
 	Appearance             string `json:"appearance"`
@@ -104,13 +105,15 @@ type DeletedProfile struct {
 	DeletedAt time.Time `json:"deletedAt"`
 }
 type State struct {
-	SecretIDs     []string         `json:"secretIds,omitempty"`
-	SchemaVersion int              `json:"schemaVersion"`
-	Revision      uint64           `json:"revision"`
-	Profiles      []Profile        `json:"profiles"`
-	Cores         []Core           `json:"cores"`
-	Settings      Settings         `json:"settings"`
-	Trash         []DeletedProfile `json:"trash,omitempty"`
+	CoreRevision  uint64            `json:"coreRevision,omitempty"`
+	SecretIDs     []string          `json:"secretIds,omitempty"`
+	Secrets       map[string][]byte `json:"secrets,omitempty"`
+	SchemaVersion int               `json:"schemaVersion"`
+	Revision      uint64            `json:"revision"`
+	Profiles      []Profile         `json:"profiles"`
+	Cores         []Core            `json:"cores"`
+	Settings      Settings          `json:"settings"`
+	Trash         []DeletedProfile  `json:"trash,omitempty"`
 }
 
 func SecretRefs(p Profile) []string {

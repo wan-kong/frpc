@@ -20,7 +20,7 @@ type backup struct {
 	Attachments map[string][]byte
 }
 
-func (c *Controller) Backup(password string) ([]byte, error) {
+func (c *Controller) backup(password string, expected *uint64) ([]byte, error) {
 	if len([]rune(password)) < 10 {
 		return nil, fmt.Errorf("备份口令至少需要 10 个字符")
 	}
@@ -115,7 +115,7 @@ func decodeBackup(blob []byte, password string) (backup, error) {
 	return data, nil
 }
 
-func (c *Controller) RestoreBackup(blob []byte, password string) (commandErr error) {
+func (c *Controller) restoreBackup(blob []byte, password string, createdIDs *[]string) (commandErr error) {
 	defer func() { commandErr = commandError(commandErr, domain.StorageFailed) }()
 	data, err := decodeBackup(blob, password)
 	if err != nil {
@@ -183,7 +183,7 @@ func (c *Controller) RestoreBackup(blob []byte, password string) (commandErr err
 			if !ok {
 				return fmt.Errorf("备份缺少证书附件")
 			}
-			p.TrustedCA, err = c.ImportCA(b)
+			p.TrustedCA, err = c.importCA(b)
 			if err != nil {
 				return err
 			}
@@ -231,5 +231,10 @@ func (c *Controller) RestoreBackup(blob []byte, password string) (commandErr err
 	}
 	err = c.Store.Update(func(s *domain.State) error { s.Profiles = append(s.Profiles, data.Profiles...); return nil })
 	committed = err == nil
+	if committed && createdIDs != nil {
+		for _, p := range data.Profiles {
+			*createdIDs = append(*createdIDs, p.ID)
+		}
+	}
 	return err
 }

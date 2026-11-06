@@ -43,6 +43,9 @@ func protocolServer(t *testing.T) *protocolFixture {
 		t.Fatal(err)
 	}
 	binary, _ := filepath.Abs(filepath.Join("..", "..", ".test-tools", "frps"))
+	if _, err = os.Stat(binary); err != nil {
+		t.Skip("缺少 .test-tools/frps；真实内核集成检查已跳过")
+	}
 	server := exec.Command(binary, "-c", path)
 	server.Stdout = io.Discard
 	server.Stderr = io.Discard
