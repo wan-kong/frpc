@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.1
+
+[compare changes](https://github.com/wan-kong/frpc/compare/v0.1.0...v0.1.1)
+
+### 🚀 Enhancements
+
+- Remove the summary line ([7ac7a0b](https://github.com/wan-kong/frpc/commit/7ac7a0b))
+- Use new logo ([e08f660](https://github.com/wan-kong/frpc/commit/e08f660))
+- Show setting trigger ([9be2fb1](https://github.com/wan-kong/frpc/commit/9be2fb1))
+- Update readme ([bd1b4a4](https://github.com/wan-kong/frpc/commit/bd1b4a4))
+- Fuzzy the about panel ([7625530](https://github.com/wan-kong/frpc/commit/7625530))
+
 ## 0.1.0
 
 首个公开版本。
