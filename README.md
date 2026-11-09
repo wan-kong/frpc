@@ -1,6 +1,14 @@
+<img src="resources/icon.png" alt="frp-desktop 应用图标" width="128" height="128">
+
 # frp-desktop
 
 采用 MyGo Native UI 的 macOS 与 Windows frp 客户端管理工具。
+
+## 界面预览
+
+下图为 macOS 开发版的实际窗口截图，使用 mock 连接与隧道配置，所有连接均处于停止状态。
+
+![frp-desktop 连接与隧道管理界面](static/app-preview.png)
 
 ## 下载
 

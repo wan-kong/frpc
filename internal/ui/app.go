@@ -330,7 +330,17 @@ func (a *App) sidebar(c *u.Context) {
 			versionLabel = "版本 v" + strings.TrimPrefix(version, "v")
 		}
 		u.Row(c).FillWidth().Shrink(0).AlignItems(u.Center).Padding(6, 4).Gap(8).Children(func() {
-			u.Text(c, versionLabel).Grow(1).MinWidth(0).SingleLine().FontSize(12).TextColor(c.Theme().TextMuted).Label("应用版本：" + versionLabel)
+			u.Text(c, versionLabel).MinWidth(0).SingleLine().FontSize(12).TextColor(c.Theme().TextMuted).Label("应用版本：" + versionLabel)
+			u.Spacer(c)
+			u.Button(c, "").Size(16, 16).Shrink(0).Padding(0).Background(u.Transparent).BorderColor(u.Transparent).TextColor(c.Theme().TextMuted).Label("打开设置").Tooltip("打开设置").OnClick(a.OpenSettings).Children(func() {
+				u.Icon(c, settingsIcon).Size(16, 16).Shrink(0)
+			})
+			services := c.Services()
+			u.Button(c, "").Size(16, 16).Shrink(0).Padding(0).Background(u.Transparent).BorderColor(u.Transparent).TextColor(c.Theme().TextMuted).Label("打开 GitHub 仓库").Tooltip("打开 GitHub 仓库").OnClick(func() {
+				services.OpenURL("https://github.com/wan-kong/frpc")
+			}).Children(func() {
+				u.Icon(c, githubIcon).Size(16, 16).Shrink(0)
+			})
 			themeLabel, themeIcon := "切换到深色", moonIcon
 			if a.Dark {
 				themeLabel, themeIcon = "切换到浅色", sunIcon
@@ -1309,8 +1319,8 @@ func (a *App) SettingsView(c *u.Context) {
 					case "dark":
 						choice = 2
 					}
-					if u.Segmented(c, &choice, "跟随系统", "浅色", "深色").Changed() {
-						a.Settings.Appearance = []string{"system", "light", "dark"}[choice]
+					if u.Segmented(c, &choice, "跟随系统", "浅色", "深色").Disabled(a.Busy).Changed() {
+						a.setAppearance([]string{"system", "light", "dark"}[choice])
 					}
 				})
 				u.Field(c, "登录", func() { u.Checkbox(c, &a.Settings.OpenAtLogin, "登录时在后台启动") })
@@ -1365,11 +1375,16 @@ func (a *App) settingsDirty() bool {
 		a.DownloadProxy != a.DownloadProxySaved
 }
 func (a *App) ToggleAppearance() {
-	settings := a.State.Settings
-	settings.Appearance = "dark"
+	appearance := "dark"
 	if a.Dark {
-		settings.Appearance = "light"
+		appearance = "light"
 	}
+	a.setAppearance(appearance)
+}
+
+func (a *App) setAppearance(appearance string) {
+	settings := a.State.Settings
+	settings.Appearance = appearance
 	cmd := app.GlobalCommand{OperationID: domain.NewID(), ExpectedRevision: settings.Revision, Action: app.SaveAppSettings{Settings: settings}}
 	var result app.CommandResult
 	a.Do("切换主题", func(ctx context.Context) error {
@@ -1393,6 +1408,10 @@ func (a *App) applyAppearance(appearance string) {
 		mygo.Theme.SetSource(mygo.ThemeLight)
 	default:
 		mygo.Theme.SetSource(mygo.ThemeSystem)
+		a.Dark = mygo.Theme.IsDark()
+	}
+	if a.Window != nil {
+		a.Window.Invalidate()
 	}
 	if a.SettingsWindow != nil {
 		a.SettingsWindow.Invalidate()
