@@ -1,0 +1,17 @@
+{
+  "name": "frpc",
+  "slug": "frpc",
+  "identifier": "top.wankong.frpc",
+  "version": "0.1.0",
+  "out": "build",
+  "updates": {
+    "github": "wan-kong/frpc",
+    "publicKey": "Z3qB0XmvWB9Pi2QX/4vwARueV6r6yj8ExKHHv28Qfto="
+  },
+  "macos": {
+    "minimumSystemVersion": "13.0"
+  },
+  "windows": {
+    "displayName": "frp-desktop"
+  }
+}
