@@ -402,13 +402,7 @@ func (a *App) workspaceContent(c *u.Context) {
 				u.Button(c, "编辑连接").Disabled(a.Busy).OnClick(func() { a.EditProfile(p.ID) })
 				u.Button(c, "查看配置").Disabled(!has || a.Busy).OnClick(a.OpenRaw)
 			})
-			summary := RegistrationSummary(p, rt, time.Now())
-			if a.VisitorTab {
-				summary = VisitorSummary(p, rt, time.Now())
-			}
-			if summary != "" {
-				u.Text(c, summary).FontSize(12).TextColor(c.Theme().TextMuted).Wrap().Padding(0, 16, 8, 16)
-			}
+
 			if rt.SessionError != "" {
 				u.Text(c, rt.SessionError).TextColor(c.Theme().Danger).Padding(0, 16, 8, 16).MaxHeight(70)
 			}
