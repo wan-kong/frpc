@@ -1,12 +1,15 @@
-<img src="resources/icon.png" alt="frp-desktop 应用图标" width="128" height="128">
+<img src="resources/icon.png" alt="frp-desktop 应用图标" width="128" height="128" style="border-radius:8px;">
 
 # frp-desktop
 
-采用 MyGo Native UI 的 macOS 与 Windows frp 客户端管理工具。
+[![最新版本](https://img.shields.io/github/v/release/wan-kong/frpc?style=flat-square&color=2563eb)](https://github.com/wan-kong/frpc/releases/latest)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-181717?style=flat-square&logo=apple&logoColor=white)](https://github.com/wan-kong/frpc/releases/latest)
+[![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078d4?style=flat-square)](https://github.com/wan-kong/frpc/releases/latest)
+[![Go 版本](https://img.shields.io/github/go-mod/go-version/wan-kong/frpc?style=flat-square&logo=go&logoColor=white&color=00add8)](go.mod)
+
+采用 MyGo 开发的客户端管理工具。
 
 ## 界面预览
-
-下图为 macOS 开发版的实际窗口截图，使用 mock 连接与隧道配置，所有连接均处于停止状态。
 
 ![frp-desktop 连接与隧道管理界面](static/app-preview.png)
 
