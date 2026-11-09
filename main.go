@@ -153,6 +153,14 @@ func main() {
 		}
 	}
 	quit := func(*mygo.MenuItem, *mygo.Window) { requestQuit(false) }
+	about := func(*mygo.MenuItem, *mygo.Window) {
+		mygo.App.ShowAboutPanel(mygo.AboutPanelOptions{
+			ApplicationName:    "frp-desktop",
+			ApplicationVersion: mygo.App.Version(),
+			Credits:            "https://github.com/wan-kong/frpc",
+			Copyright:          "@frp",
+		})
+	}
 	fileMenu := &mygo.MenuItem{Label: "文件", Submenu: []*mygo.MenuItem{
 		{Label: "新建隧道", Accelerator: "CmdOrCtrl+N", Click: func(*mygo.MenuItem, *mygo.Window) {
 			if shell != nil {
@@ -181,7 +189,7 @@ func main() {
 	var menus []*mygo.MenuItem
 	if runtime.GOOS == "darwin" {
 		menus = append(menus, &mygo.MenuItem{Label: "frp-desktop", Submenu: []*mygo.MenuItem{
-			{Role: mygo.RoleAbout},
+			{Label: "关于 frp-desktop", Click: about},
 			{Label: "检查更新", Click: checkUpdates}, mygo.Separator(),
 			{Label: "设置", Accelerator: "CmdOrCtrl+,", Click: settings}, mygo.Separator(),
 			{Role: mygo.RoleHide}, {Role: mygo.RoleHideOthers}, {Role: mygo.RoleUnhide}, mygo.Separator(),
@@ -205,7 +213,7 @@ func main() {
 		{Label: "切换日志", Accelerator: "CmdOrCtrl+Alt+L", Click: func(*mygo.MenuItem, *mygo.Window) { viewAction((*view.App).ToggleLogs) }},
 	}}, &mygo.MenuItem{Role: mygo.RoleWindowMenu})
 	if runtime.GOOS != "darwin" {
-		menus = append(menus, &mygo.MenuItem{Label: "帮助", Submenu: []*mygo.MenuItem{{Label: "检查更新", Click: checkUpdates}}})
+		menus = append(menus, &mygo.MenuItem{Label: "帮助", Submenu: []*mygo.MenuItem{{Label: "检查更新", Click: checkUpdates}, {Label: "关于 frp-desktop", Click: about}}})
 	}
 	mygo.App.SetMenu(mygo.NewMenu(menus))
 	mygo.App.OnActivate(func(bool) { show() })
