@@ -7,7 +7,7 @@
 [![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078d4?style=flat-square)](https://github.com/wan-kong/frpc/releases/latest)
 [![Go 版本](https://img.shields.io/github/go-mod/go-version/wan-kong/frpc?style=flat-square&logo=go&logoColor=white&color=00add8)](go.mod)
 
-采用 MyGo 开发的客户端管理工具。
+采用 MyGo 开发的 [frp](https://github.com/fatedier/frp) 客户端管理工具。
 
 ## 界面预览
 
